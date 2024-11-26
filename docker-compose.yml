@@ -1,0 +1,11 @@
+version: "3"
+services:
+  telegram_bot:
+    build: .
+    container_name: telegram_party_bot
+    restart: always
+    # environment:
+      # - TOKEN=<YOUR_BOT_API_TOKEN>
+      # - ADMIN_USER_ID=<YOUR_TELEGRAM_USER_ID>
+    ports:
+      - "8080:8080"
