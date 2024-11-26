@@ -50,7 +50,7 @@ async def start(update: Update, context: CallbackContext) -> int:
 
     reply_keyboard = [["میام", "نمیام", "لیست مهمونا"]]
     markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
-    await update.message.reply_text("سلام! خوش اومدی 🎉. میای؟ نمیای؟ یا لیست مهمونا؟ 😊", reply_markup=markup)
+    await update.message.reply_text("سلام خوبی؟ 🥳\nمیای؟ نمیای؟ یا لیست مهمونا؟", reply_markup=markup)
     return CHOOSING
 
 # Handle user choice
