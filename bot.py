@@ -95,7 +95,7 @@ async def get_name(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     guests[user_id]["name"] = update.message.text
     save_guests(guests)
-    await update.message.reply_text("حالا یه آهنگ توپ پیشنهاد بده 🎵")
+    await update.message.reply_text("حالا یه آهنگ واسه پلی‌لیست پیشنهاد بده 🎵")
     return GET_SONG
 
 # Get song
@@ -120,10 +120,10 @@ async def get_dress(update: Update, context: CallbackContext) -> int:
     save_guests(guests)
 
     # Notify completion and return to the main menu
-    await update.message.reply_text("خیلی هم عالی، میبینمت! 😍")
+    await update.message.reply_text("آقا عالی، میبینمت 🥹")
     reply_keyboard = [["میام", "نمیام", "لیست مهمونا"]]
     markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
-    await update.message.reply_text("میخوای دوباره تصمیم بگیری؟ 😎", reply_markup=markup)
+    await update.message.reply_text("دیگه کاری باری؟", reply_markup=markup)
     return CHOOSING
 
 # Fallback handler
