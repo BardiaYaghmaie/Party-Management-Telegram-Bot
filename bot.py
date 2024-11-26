@@ -53,7 +53,7 @@ async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("سلام! خوش اومدی 🎉. میای؟ نمیای؟ یا لیست مهمونا؟ 😊", reply_markup=markup)
     return CHOOSING
 
-# Handle "نمیام" logic to remove guest from the list
+# Handle user choice
 async def handle_choice(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     choice = update.message.text
@@ -78,11 +78,17 @@ async def handle_choice(update: Update, context: CallbackContext) -> int:
         return CHOOSING
 
     if choice == "میام":
+        # Check if the user is already attending
+        if user_id in guests and guests[user_id].get("status") == "attending":
+            await update.message.reply_text("میدونم میای، دیگه بس کن! 😂")
+            return CHOOSING
+
         # Add user back to the guest list
         guests[user_id] = {"name": None, "song": None, "dress": None, "status": "attending"}
         save_guests(guests)
         await update.message.reply_text("عالیه! اسمت چیه؟", reply_markup=ReplyKeyboardRemove())
         return GET_NAME
+
 
 # Get name
 async def get_name(update: Update, context: CallbackContext) -> int:
