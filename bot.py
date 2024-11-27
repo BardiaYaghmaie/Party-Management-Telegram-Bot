@@ -1,7 +1,6 @@
 import os
 import json
 import logging
-from filelock import FileLock
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
@@ -19,7 +18,6 @@ ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
 # Paths for persistent storage
 BASE_PATH = "/data/party_bot/"
 GUEST_FILE = os.path.join(BASE_PATH, "guests.json")
-LOCK_FILE = os.path.join(BASE_PATH, "guests.lock")  # Lock file for synchronization
 LOG_FILE = os.path.join(BASE_PATH, "bot.log")
 
 # Initialize logging
@@ -29,16 +27,14 @@ logger = logging.getLogger(__name__)
 
 # Load or initialize guest data
 def load_guests():
-    with FileLock(LOCK_FILE):  # Lock the file during access
-        if not os.path.exists(GUEST_FILE):
-            return {}
-        with open(GUEST_FILE, "r") as file:
-            return json.load(file)
+    if not os.path.exists(GUEST_FILE):
+        return {}
+    with open(GUEST_FILE, "r") as file:
+        return json.load(file)
 
 def save_guests(guests):
-    with FileLock(LOCK_FILE):  # Lock the file during access
-        with open(GUEST_FILE, "w") as file:
-            json.dump(guests, file, ensure_ascii=False, indent=4)
+    with open(GUEST_FILE, "w") as file:
+        json.dump(guests, file, ensure_ascii=False, indent=4)
 
 guests = load_guests()
 
@@ -51,7 +47,6 @@ main_menu = ReplyKeyboardMarkup([["میام", "نمیام", "لیست مهمون
 # Command /start
 async def start(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
-    guests = load_guests()  # Reload guests for the latest state
     if user_id in guests and guests[user_id].get("status") == "attending":
         await update.message.reply_text("میدونم میای، دیگه بس کن! 😂", reply_markup=main_menu)
         return CHOOSING
@@ -63,7 +58,6 @@ async def start(update: Update, context: CallbackContext) -> int:
 async def handle_choice(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     choice = update.message.text
-    guests = load_guests()  # Reload guests for the latest state
 
     if choice == "لیست مهمونا":
         guest_list = "\n".join(
@@ -96,7 +90,6 @@ async def handle_choice(update: Update, context: CallbackContext) -> int:
 # Get name
 async def get_name(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
-    guests = load_guests()  # Reload guests for the latest state
     guests[user_id]["name"] = update.message.text
     save_guests(guests)
     await update.message.reply_text("حالا یه آهنگ واسه پلی‌لیست پیشنهاد بده 🎵")
@@ -107,11 +100,11 @@ async def get_song(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     song = update.message.text
 
+    # Validate input (ensure it's text and not empty)
     if not isinstance(song, str) or song.strip() == "":
         await update.message.reply_text("لطفاً فقط اسم آهنگ رو بنویسید و فایل یا چیز دیگه نفرستید. 🎵")
         return GET_SONG
 
-    guests = load_guests()  # Reload guests for the latest state
     guests[user_id]["song"] = song.strip()
     save_guests(guests)
 
@@ -128,7 +121,6 @@ async def get_dress(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("فقط کژوال یا رسمی انتخاب کن! دوباره بگو.")
         return GET_DRESS
 
-    guests = load_guests()  # Reload guests for the latest state
     guests[user_id]["dress"] = dress
     save_guests(guests)
 
@@ -146,7 +138,6 @@ async def stats(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text("این دستور فقط برای ادمین هست.")
         return
 
-    guests = load_guests()  # Reload guests for the latest state
     total_guests = len([guest for guest in guests.values() if guest["status"] == "attending"])
     response = f"آمار مهمونا:\nکل مهمونا: {total_guests}"
     await update.message.reply_text(response)
