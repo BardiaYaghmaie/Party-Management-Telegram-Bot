@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+from filelock import FileLock
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
@@ -18,6 +19,7 @@ ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
 # Paths for persistent storage
 BASE_PATH = "/data/party_bot/"
 GUEST_FILE = os.path.join(BASE_PATH, "guests.json")
+LOCK_FILE = os.path.join(BASE_PATH, "guests.lock")  # Lock file for synchronization
 LOG_FILE = os.path.join(BASE_PATH, "bot.log")
 
 # Initialize logging
@@ -27,36 +29,41 @@ logger = logging.getLogger(__name__)
 
 # Load or initialize guest data
 def load_guests():
-    if not os.path.exists(GUEST_FILE):
-        return {}
-    with open(GUEST_FILE, "r") as file:
-        return json.load(file)
+    with FileLock(LOCK_FILE):  # Lock the file during access
+        if not os.path.exists(GUEST_FILE):
+            return {}
+        with open(GUEST_FILE, "r") as file:
+            return json.load(file)
 
 def save_guests(guests):
-    with open(GUEST_FILE, "w") as file:
-        json.dump(guests, file, ensure_ascii=False, indent=4)
+    with FileLock(LOCK_FILE):  # Lock the file during access
+        with open(GUEST_FILE, "w") as file:
+            json.dump(guests, file, ensure_ascii=False, indent=4)
 
 guests = load_guests()
 
 # Conversation states
 CHOOSING, GET_NAME, GET_SONG, GET_DRESS = range(4)
 
+# Main menu markup
+main_menu = ReplyKeyboardMarkup([["میام", "نمیام", "لیست مهمونا"]], one_time_keyboard=True, resize_keyboard=True)
+
 # Command /start
 async def start(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
+    guests = load_guests()  # Reload guests for the latest state
     if user_id in guests and guests[user_id].get("status") == "attending":
-        await update.message.reply_text("میدونم میای، دیگه بس کن! 😂")
+        await update.message.reply_text("میدونم میای، دیگه بس کن! 😂", reply_markup=main_menu)
         return CHOOSING
 
-    reply_keyboard = [["میام", "نمیام", "لیست مهمونا"]]
-    markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
-    await update.message.reply_text("سلام خوبی؟ 🥳\nمیای؟ نمیای؟ یا لیست مهمونا؟", reply_markup=markup)
+    await update.message.reply_text("سلام خوبی؟ 🥳\nمیای؟ نمیای؟ یا لیست مهمونا؟", reply_markup=main_menu)
     return CHOOSING
 
 # Handle user choice
 async def handle_choice(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     choice = update.message.text
+    guests = load_guests()  # Reload guests for the latest state
 
     if choice == "لیست مهمونا":
         guest_list = "\n".join(
@@ -66,33 +73,30 @@ async def handle_choice(update: Update, context: CallbackContext) -> int:
             ]
         )
         response = f"لیست مهمونا:\n{guest_list}" if guest_list else "هیچکس هنوز نیومده 😢"
-        await update.message.reply_text(response)
+        await update.message.reply_text(response, reply_markup=main_menu)
         return CHOOSING
 
     if choice == "نمیام":
-        # Remove user from the guest list
         if user_id in guests:
             del guests[user_id]
             save_guests(guests)
-        await update.message.reply_text("ایشالا سال دیگه! 😢\nاگه نظرت عوض شد، باز بهم خبر بده.")
+        await update.message.reply_text("ایشالا سال دیگه! 😢\nاگه نظرت عوض شد، باز بهم خبر بده.", reply_markup=main_menu)
         return CHOOSING
 
     if choice == "میام":
-        # Check if the user is already attending
         if user_id in guests and guests[user_id].get("status") == "attending":
-            await update.message.reply_text("میدونم میای، دیگه بس کن! 😂")
+            await update.message.reply_text("میدونم میای، دیگه بس کن! 😂", reply_markup=main_menu)
             return CHOOSING
 
-        # Add user back to the guest list
         guests[user_id] = {"name": None, "song": None, "dress": None, "status": "attending"}
         save_guests(guests)
         await update.message.reply_text("عالیه! اسمت چیه؟", reply_markup=ReplyKeyboardRemove())
         return GET_NAME
 
-
 # Get name
 async def get_name(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
+    guests = load_guests()  # Reload guests for the latest state
     guests[user_id]["name"] = update.message.text
     save_guests(guests)
     await update.message.reply_text("حالا یه آهنگ واسه پلی‌لیست پیشنهاد بده 🎵")
@@ -101,8 +105,16 @@ async def get_name(update: Update, context: CallbackContext) -> int:
 # Get song
 async def get_song(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
-    guests[user_id]["song"] = update.message.text
+    song = update.message.text
+
+    if not isinstance(song, str) or song.strip() == "":
+        await update.message.reply_text("لطفاً فقط اسم آهنگ رو بنویسید و فایل یا چیز دیگه نفرستید. 🎵")
+        return GET_SONG
+
+    guests = load_guests()  # Reload guests for the latest state
+    guests[user_id]["song"] = song.strip()
     save_guests(guests)
+
     reply_keyboard = [["کژوال", "رسمی"]]
     markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
     await update.message.reply_text("خب، چجوری میای؟ کژوال یا رسمی؟ 👗👔", reply_markup=markup)
@@ -116,19 +128,16 @@ async def get_dress(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("فقط کژوال یا رسمی انتخاب کن! دوباره بگو.")
         return GET_DRESS
 
+    guests = load_guests()  # Reload guests for the latest state
     guests[user_id]["dress"] = dress
     save_guests(guests)
 
-    # Notify completion and return to the main menu
-    await update.message.reply_text("آقا عالی، میبینمت 🥹")
-    reply_keyboard = [["میام", "نمیام", "لیست مهمونا"]]
-    markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
-    await update.message.reply_text("دیگه کاری باری؟", reply_markup=markup)
+    await update.message.reply_text("آقا عالی، میبینمت 🥹", reply_markup=main_menu)
     return CHOOSING
 
 # Fallback handler
 async def fallback(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text("پیام نامعتبره. لطفاً یکی از گزینه‌های منو رو انتخاب کن.")
+    await update.message.reply_text("پیام نامعتبره. لطفاً یکی از گزینه‌های منو رو انتخاب کن.", reply_markup=main_menu)
     return CHOOSING
 
 # Admin command to see stats
@@ -137,6 +146,7 @@ async def stats(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text("این دستور فقط برای ادمین هست.")
         return
 
+    guests = load_guests()  # Reload guests for the latest state
     total_guests = len([guest for guest in guests.values() if guest["status"] == "attending"])
     response = f"آمار مهمونا:\nکل مهمونا: {total_guests}"
     await update.message.reply_text(response)
