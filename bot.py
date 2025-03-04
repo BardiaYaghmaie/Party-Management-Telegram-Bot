@@ -15,10 +15,10 @@ from guest_manager import GuestManager
 TOKEN = os.getenv("TOKEN")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
 
-# Initialize logging
+# Initialize logging with detailed format
 LOG_FILE = os.path.join("/data/party_bot/", "bot.log")
 os.makedirs("/data/party_bot/", exist_ok=True)
-logging.basicConfig(filename=LOG_FILE, format="%(asctime)s - %(message)s", level=logging.INFO)
+logging.basicConfig(filename=LOG_FILE, format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize GuestManager
@@ -33,7 +33,9 @@ main_menu = ReplyKeyboardMarkup([["میام", "نمیام", "لیست مهمون
 
 async def start(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
+    logger.info(f"User {user_id} initiated /start")
     if user_id in guest_manager.guests and guest_manager.guests[user_id].get("status") == "attending":
+        logger.info(f"User {user_id} already attending; showing main menu")
         await update.message.reply_text("میدونم میای، دیگه بس کن! 😂", reply_markup=main_menu)
         return CHOOSING
 
@@ -44,6 +46,7 @@ async def start(update: Update, context: CallbackContext) -> int:
 async def handle_choice(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     choice = update.message.text
+    logger.info(f"User {user_id} made a choice: {choice}")
 
     if choice == "لیست مهمونا":
         guest_list = "\n".join(
@@ -54,12 +57,14 @@ async def handle_choice(update: Update, context: CallbackContext) -> int:
             ]
         )
         response = f"لیست مهمونا:\n{guest_list}" if guest_list else "هیچکس هنوز نیومده 😢"
+        logger.info(f"User {user_id} requested guest list. Response: {response}")
         await update.message.reply_text(response, reply_markup=main_menu)
         return CHOOSING
 
     if choice == "نمیام":
         if user_id in guest_manager.guests:
             guest_manager.remove_guest(user_id)
+            logger.info(f"User {user_id} removed from guest list (status: نمیام)")
             await guest_manager.save_guests_async()
         await update.message.reply_text(
             "ایشالا سال دیگه! 😢\nاگه نظرت عوض شد، باز بهم خبر بده.", reply_markup=main_menu
@@ -68,10 +73,12 @@ async def handle_choice(update: Update, context: CallbackContext) -> int:
 
     if choice == "میام":
         if user_id in guest_manager.guests and guest_manager.guests[user_id].get("status") == "attending":
+            logger.info(f"User {user_id} already marked as attending")
             await update.message.reply_text("میدونم میای، دیگه بس کن! 😂", reply_markup=main_menu)
             return CHOOSING
 
         guest_manager.add_guest(user_id, {"name": None, "song": None, "dress": None, "status": "attending"})
+        logger.info(f"User {user_id} added as attending; awaiting name")
         await guest_manager.save_guests_async()
         await update.message.reply_text("عالیه! اسمت چیه؟", reply_markup=ReplyKeyboardRemove())
         return GET_NAME
@@ -79,7 +86,9 @@ async def handle_choice(update: Update, context: CallbackContext) -> int:
 
 async def get_name(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
-    guest_manager.guests[user_id]["name"] = update.message.text
+    name = update.message.text
+    guest_manager.guests[user_id]["name"] = name
+    logger.info(f"User {user_id} provided name: {name}")
     await guest_manager.save_guests_async()
     await update.message.reply_text("حالا یه آهنگ واسه پلی‌لیست پیشنهاد بده 🎵")
     return GET_SONG
@@ -90,10 +99,12 @@ async def get_song(update: Update, context: CallbackContext) -> int:
     song = update.message.text
 
     if not isinstance(song, str) or song.strip() == "":
+        logger.warning(f"User {user_id} provided invalid song input")
         await update.message.reply_text("لطفاً فقط اسم آهنگ رو بنویسید و فایل یا چیز دیگه نفرستید. 🎵")
         return GET_SONG
 
     guest_manager.guests[user_id]["song"] = song.strip()
+    logger.info(f"User {user_id} provided song: {song.strip()}")
     await guest_manager.save_guests_async()
 
     reply_keyboard = [["کژوال", "رسمی"]]
@@ -106,10 +117,12 @@ async def get_dress(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     dress = update.message.text
     if dress not in ["کژوال", "رسمی"]:
+        logger.warning(f"User {user_id} provided invalid dress input: {dress}")
         await update.message.reply_text("فقط کژوال یا رسمی انتخاب کن! دوباره بگو.")
         return GET_DRESS
 
     guest_manager.guests[user_id]["dress"] = dress
+    logger.info(f"User {user_id} selected dress: {dress}")
     await guest_manager.save_guests_async()
 
     await update.message.reply_text("آقا عالی، میبینمت 🥹", reply_markup=main_menu)
@@ -117,17 +130,22 @@ async def get_dress(update: Update, context: CallbackContext) -> int:
 
 
 async def fallback(update: Update, context: CallbackContext) -> int:
+    logger.warning("Fallback triggered due to invalid input")
     await update.message.reply_text("پیام نامعتبره. لطفاً یکی از گزینه‌های منو رو انتخاب کن.", reply_markup=main_menu)
     return CHOOSING
 
 
 async def stats(update: Update, context: CallbackContext) -> None:
-    if update.message.from_user.id != ADMIN_USER_ID:
+    user_id = update.message.from_user.id
+    logger.info(f"User {user_id} requested stats")
+    if user_id != ADMIN_USER_ID:
+        logger.warning(f"Unauthorized stats request by user {user_id}")
         await update.message.reply_text("این دستور فقط برای ادمین هست.")
         return
 
     total_guests = len([guest for guest in guest_manager.guests.values() if guest["status"] == "attending"])
     response = f"آمار مهمونا:\nکل مهمونا: {total_guests}"
+    logger.info(f"Stats provided to admin: {response}")
     await update.message.reply_text(response)
 
 
@@ -147,6 +165,7 @@ def main():
 
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("stats", stats))
+    logger.info("Bot is starting polling...")
     application.run_polling()
 
 
