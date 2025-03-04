@@ -30,18 +30,17 @@ CHOOSING, GET_NAME, GET_SONG, GET_DRESS = range(4)
 # Main menu markup
 main_menu = ReplyKeyboardMarkup([["میام", "نمیام", "لیست مهمونا"]], one_time_keyboard=True, resize_keyboard=True)
 
-
-def is_valid_text(text: str) -> bool:
+def is_valid_text(text: str, max_length: int) -> bool:
     """
-    Validates that the provided text is a non-empty string.
+    Validates that the text is a non-empty string with printable characters and within the specified length.
     """
-    return isinstance(text, str) and text.strip() != ""
-
+    if not isinstance(text, str):
+        return False
+    text = text.strip()
+    return 0 < len(text) <= max_length and all(c.isprintable() for c in text)
 
 def format_guest_list(guests: dict) -> str:
-    """
-    Formats the guest list into a readable string.
-    """
+    """Formats the guest list into a readable string."""
     guest_list = "\n".join(
         f"{guest['name']} 🎵 {guest.get('song', 'آهنگ پیشنهاد نشده')} 👕 {guest.get('dress', 'نامشخص')}"
         for guest in guests.values()
@@ -49,12 +48,8 @@ def format_guest_list(guests: dict) -> str:
     )
     return f"لیست مهمونا:\n{guest_list}" if guest_list else "هیچکس هنوز نیومده 😢"
 
-
 async def start(update: Update, context: CallbackContext) -> int:
-    """
-    Handler for the /start command.
-    Initiates conversation by greeting the user and displaying the main menu.
-    """
+    """Initiates conversation by greeting the user and displaying the main menu."""
     user_id = update.message.from_user.id
     logger.info(f"User {user_id} initiated /start")
     if user_id in guest_manager.guests and guest_manager.guests[user_id].get("status") == "attending":
@@ -65,13 +60,8 @@ async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("سلام خوبی؟ 🥳\nمیای؟ نمیای؟ یا لیست مهمونا؟", reply_markup=main_menu)
     return CHOOSING
 
-
 async def handle_choice(update: Update, context: CallbackContext) -> int:
-    """
-    Handler for processing user choices from the main menu.
-    Depending on the choice, it displays the guest list, removes the guest,
-    or initiates the guest registration process.
-    """
+    """Processes user choices from the main menu."""
     user_id = update.message.from_user.id
     choice = update.message.text
     logger.info(f"User {user_id} made a choice: {choice}")
@@ -85,8 +75,8 @@ async def handle_choice(update: Update, context: CallbackContext) -> int:
     if choice == "نمیام":
         if user_id in guest_manager.guests:
             guest_manager.remove_guest(user_id)
-            logger.info(f"User {user_id} removed from guest list (status: نمیام)")
             await guest_manager.save_guests_async()
+            logger.info(f"User {user_id} removed from guest list (status: نمیام)")
         await update.message.reply_text(
             "ایشالا سال دیگه! 😢\nاگه نظرت عوض شد، باز بهم خبر بده.", reply_markup=main_menu
         )
@@ -99,102 +89,74 @@ async def handle_choice(update: Update, context: CallbackContext) -> int:
             return CHOOSING
 
         guest_manager.add_guest(user_id, {"name": None, "song": None, "dress": None, "status": "attending"})
-        logger.info(f"User {user_id} added as attending; awaiting name")
         await guest_manager.save_guests_async()
+        logger.info(f"User {user_id} added as attending; awaiting name")
         await update.message.reply_text("عالیه! اسمت چیه؟", reply_markup=ReplyKeyboardRemove())
         return GET_NAME
 
-
 async def get_name(update: Update, context: CallbackContext) -> int:
-    """
-    Handler to capture the user's name.
-    Stores the name and prompts the user for a song suggestion.
-    """
+    """Captures and validates the user's name, then prompts for a song."""
     user_id = update.message.from_user.id
-    name = update.message.text
+    name = update.message.text.strip()
+    if not is_valid_text(name, 50):
+        await update.message.reply_text("لطفاً یه اسم معتبر (حداکثر ۵۰ کاراکتر) بنویس.")
+        return GET_NAME
     guest_manager.guests[user_id]["name"] = name
-    logger.info(f"User {user_id} provided name: {name}")
     await guest_manager.save_guests_async()
+    logger.info(f"User {user_id} provided name: {name}")
     await update.message.reply_text("حالا یه آهنگ واسه پلی‌لیست پیشنهاد بده 🎵")
     return GET_SONG
 
-
 async def get_song(update: Update, context: CallbackContext) -> int:
-    """
-    Handler to capture the user's song suggestion.
-    Validates the input and prompts the user to choose a dress code.
-    """
+    """Captures and validates the user's song suggestion, then prompts for dress code."""
     user_id = update.message.from_user.id
-    song = update.message.text
-
-    if not is_valid_text(song):
-        logger.warning(f"User {user_id} provided invalid song input")
-        await update.message.reply_text("لطفاً فقط اسم آهنگ رو بنویسید و فایل یا چیز دیگه نفرستید. 🎵")
+    song = update.message.text.strip()
+    if not is_valid_text(song, 100):
+        await update.message.reply_text("لطفاً یه اسم آهنگ معتبر (حداکثر ۱۰۰ کاراکتر) بنویس.")
         return GET_SONG
-
-    guest_manager.guests[user_id]["song"] = song.strip()
-    logger.info(f"User {user_id} provided song: {song.strip()}")
+    guest_manager.guests[user_id]["song"] = song
     await guest_manager.save_guests_async()
-
+    logger.info(f"User {user_id} provided song: {song}")
     reply_keyboard = [["کژوال", "رسمی"]]
     markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
     await update.message.reply_text("خب، چجوری میای؟ کژوال یا رسمی؟ 👗👔", reply_markup=markup)
     return GET_DRESS
 
-
 async def get_dress(update: Update, context: CallbackContext) -> int:
-    """
-    Handler to capture the user's dress code selection.
-    Validates the choice and concludes the registration process.
-    """
+    """Captures and validates the user's dress code selection, then concludes registration."""
     user_id = update.message.from_user.id
     dress = update.message.text
     if dress not in ["کژوال", "رسمی"]:
         logger.warning(f"User {user_id} provided invalid dress input: {dress}")
         await update.message.reply_text("فقط کژوال یا رسمی انتخاب کن! دوباره بگو.")
         return GET_DRESS
-
     guest_manager.guests[user_id]["dress"] = dress
-    logger.info(f"User {user_id} selected dress: {dress}")
     await guest_manager.save_guests_async()
-
+    logger.info(f"User {user_id} selected dress: {dress}")
     await update.message.reply_text("آقا عالی، میبینمت 🥹", reply_markup=main_menu)
     return CHOOSING
 
-
 async def fallback(update: Update, context: CallbackContext) -> int:
-    """
-    Fallback handler for unrecognized inputs.
-    Prompts the user to select a valid option from the main menu.
-    """
+    """Handles unrecognized inputs by prompting for a valid menu option."""
     logger.warning("Fallback triggered due to invalid input")
     await update.message.reply_text("پیام نامعتبره. لطفاً یکی از گزینه‌های منو رو انتخاب کن.", reply_markup=main_menu)
     return CHOOSING
 
-
 async def stats(update: Update, context: CallbackContext) -> None:
-    """
-    Handler for the /stats command.
-    Provides admin with the count of attending guests.
-    """
+    """Provides admin with the count of attending guests."""
     user_id = update.message.from_user.id
     logger.info(f"User {user_id} requested stats")
     if user_id != ADMIN_USER_ID:
         logger.warning(f"Unauthorized stats request by user {user_id}")
         await update.message.reply_text("این دستور فقط برای ادمین هست.")
         return
-
     total_guests = len([guest for guest in guest_manager.guests.values() if guest["status"] == "attending"])
     response = f"آمار مهمونا:\nکل مهمونا: {total_guests}"
     logger.info(f"Stats provided to admin: {response}")
     await update.message.reply_text(response)
 
-
 def main():
-    """
-    Main entry point for starting the Telegram bot.
-    Configures the conversation handler and starts polling.
-    """
+    """Starts the Telegram bot with configured handlers."""
     application = Application.builder().token(TOKEN).build()
 
     conv_handler = ConversationHandler(
@@ -212,7 +174,6 @@ def main():
     application.add_handler(CommandHandler("stats", stats))
     logger.info("Bot is starting polling...")
     application.run_polling()
-
 
 if __name__ == "__main__":
     main()
