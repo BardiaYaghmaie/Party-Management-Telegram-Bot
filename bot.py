@@ -29,12 +29,19 @@ logger = logging.getLogger(__name__)
 def load_guests():
     if not os.path.exists(GUEST_FILE):
         return {}
-    with open(GUEST_FILE, "r") as file:
-        return json.load(file)
+    try:
+        with open(GUEST_FILE, "r") as file:
+            return json.load(file)
+    except Exception as e:
+        logger.error(f"Error loading guests from file: {e}")
+        return {}
 
 def save_guests(guests):
-    with open(GUEST_FILE, "w") as file:
-        json.dump(guests, file, ensure_ascii=False, indent=4)
+    try:
+        with open(GUEST_FILE, "w") as file:
+            json.dump(guests, file, ensure_ascii=False, indent=4)
+    except Exception as e:
+        logger.error(f"Error saving guests to file: {e}")
 
 guests = load_guests()
 
