@@ -30,6 +30,7 @@ CHOOSING, GET_NAME, GET_SONG, GET_DRESS = range(4)
 # Main menu markup
 main_menu = ReplyKeyboardMarkup([["میام", "نمیام", "لیست مهمونا"]], one_time_keyboard=True, resize_keyboard=True)
 
+
 async def start(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     if user_id in guest_manager.guests and guest_manager.guests[user_id].get("status") == "attending":
@@ -39,6 +40,7 @@ async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("سلام خوبی؟ 🥳\nمیای؟ نمیای؟ یا لیست مهمونا؟", reply_markup=main_menu)
     return CHOOSING
 
+
 async def handle_choice(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     choice = update.message.text
@@ -47,7 +49,8 @@ async def handle_choice(update: Update, context: CallbackContext) -> int:
         guest_list = "\n".join(
             [
                 f"{guest['name']} 🎵 {guest.get('song', 'آهنگ پیشنهاد نشده')} 👕 {guest.get('dress', 'نامشخص')}"
-                for guest in guest_manager.guests.values() if guest["status"] == "attending"
+                for guest in guest_manager.guests.values()
+                if guest["status"] == "attending"
             ]
         )
         response = f"لیست مهمونا:\n{guest_list}" if guest_list else "هیچکس هنوز نیومده 😢"
@@ -57,7 +60,10 @@ async def handle_choice(update: Update, context: CallbackContext) -> int:
     if choice == "نمیام":
         if user_id in guest_manager.guests:
             guest_manager.remove_guest(user_id)
-        await update.message.reply_text("ایشالا سال دیگه! 😢\nاگه نظرت عوض شد، باز بهم خبر بده.", reply_markup=main_menu)
+            await guest_manager.save_guests_async()
+        await update.message.reply_text(
+            "ایشالا سال دیگه! 😢\nاگه نظرت عوض شد، باز بهم خبر بده.", reply_markup=main_menu
+        )
         return CHOOSING
 
     if choice == "میام":
@@ -66,15 +72,18 @@ async def handle_choice(update: Update, context: CallbackContext) -> int:
             return CHOOSING
 
         guest_manager.add_guest(user_id, {"name": None, "song": None, "dress": None, "status": "attending"})
+        await guest_manager.save_guests_async()
         await update.message.reply_text("عالیه! اسمت چیه؟", reply_markup=ReplyKeyboardRemove())
         return GET_NAME
+
 
 async def get_name(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     guest_manager.guests[user_id]["name"] = update.message.text
-    guest_manager.save_guests()
+    await guest_manager.save_guests_async()
     await update.message.reply_text("حالا یه آهنگ واسه پلی‌لیست پیشنهاد بده 🎵")
     return GET_SONG
+
 
 async def get_song(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
@@ -85,12 +94,13 @@ async def get_song(update: Update, context: CallbackContext) -> int:
         return GET_SONG
 
     guest_manager.guests[user_id]["song"] = song.strip()
-    guest_manager.save_guests()
+    await guest_manager.save_guests_async()
 
     reply_keyboard = [["کژوال", "رسمی"]]
     markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
     await update.message.reply_text("خب، چجوری میای؟ کژوال یا رسمی؟ 👗👔", reply_markup=markup)
     return GET_DRESS
+
 
 async def get_dress(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
@@ -100,14 +110,16 @@ async def get_dress(update: Update, context: CallbackContext) -> int:
         return GET_DRESS
 
     guest_manager.guests[user_id]["dress"] = dress
-    guest_manager.save_guests()
+    await guest_manager.save_guests_async()
 
     await update.message.reply_text("آقا عالی، میبینمت 🥹", reply_markup=main_menu)
     return CHOOSING
 
+
 async def fallback(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("پیام نامعتبره. لطفاً یکی از گزینه‌های منو رو انتخاب کن.", reply_markup=main_menu)
     return CHOOSING
+
 
 async def stats(update: Update, context: CallbackContext) -> None:
     if update.message.from_user.id != ADMIN_USER_ID:
@@ -117,6 +129,7 @@ async def stats(update: Update, context: CallbackContext) -> None:
     total_guests = len([guest for guest in guest_manager.guests.values() if guest["status"] == "attending"])
     response = f"آمار مهمونا:\nکل مهمونا: {total_guests}"
     await update.message.reply_text(response)
+
 
 def main():
     application = Application.builder().token(TOKEN).build()
@@ -135,6 +148,7 @@ def main():
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("stats", stats))
     application.run_polling()
+
 
 if __name__ == "__main__":
     main()
